@@ -110,23 +110,32 @@ def recognize_captcha(x1, y1, x2, y2, text):
 # 动态定位工具函数
 # ========================
 def unprocess_bbox_by_ratio(bbox, screen_size):
+    """
+    将模型输出的相对坐标 (0-1000) 转换为实际屏幕坐标
+    使用更精确的浮点数计算，避免整数除法误差
+    """
     x1, y1, x2, y2 = bbox
     W_screen, H_screen = screen_size
-    W_model, H_model = 1000, 1000
+    W_model, H_model = 1000.0, 1000.0  # 使用浮点数确保精度
+    
+    # 使用浮点运算提高精度
     X1 = int(round(x1 * W_screen / W_model))
     Y1 = int(round(y1 * H_screen / H_model))
     X2 = int(round(x2 * W_screen / W_model))
     Y2 = int(round(y2 * H_screen / H_model))
-    X1 = max(0, min(W_screen, X1))
-    Y1 = max(0, min(H_screen, Y1))
-    X2 = max(0, min(W_screen, X2))
-    Y2 = max(0, min(H_screen, Y2))
+    
+    # 边界检查
+    X1 = max(0, min(W_screen - 1, X1))
+    Y1 = max(0, min(H_screen - 1, Y1))
+    X2 = max(0, min(W_screen - 1, X2))
+    Y2 = max(0, min(H_screen - 1, Y2))
+    
     return X1, Y1, X2, Y2
 
 def detect_element(image_pil, description):
     prompt = f"""# 视觉定位
-    请检测图中 {description} 的边界框，并严格输出：
-    <ref>{description}</ref><box>(x1,y1),(x2,y2)</box>"""
+请检测图中 {description} 的边界框，并严格输出：
+<ref>{description}</ref><box>(x1,y1),(x2,y2)</box>"""
 
     try:
         messages = [{
@@ -146,6 +155,10 @@ def detect_element(image_pil, description):
         print(f"🔍 原始输出: '{output}'")
 
         match_bbox = re.search(r"<ref>.*?</ref><box>\s*\((\d+),(\d+)\)\s*,\s*\((\d+),(\d+)\)\s*</box>", output)
+        if not match_bbox:
+            # 尝试备用模式 (x1 y1 x2 y2)
+            match_bbox = re.search(r"<ref>.*?</ref><box>\s*(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s*</box>", output)
+        
         if not match_bbox:
             print("⚠️ 未找到目标 bbox")
             return None
@@ -224,12 +237,22 @@ def detect_element_global(description):
 
     print(f"❌ 在所有象限中未找到 [{description}]")
     return None
-def get_center(bbox):
+def get_center(bbox, jitter_range=0):
+    """
+    计算边界框的中心点坐标
+    :param bbox: (x1, y1, x2, y2) 边界框
+    :param jitter_range: 随机抖动范围，默认为 0（精确中心）
+    :return: (cx, cy) 中心点坐标
+    """
     x1, y1, x2, y2 = bbox
     cx = (x1 + x2) // 2
     cy = (y1 + y2) // 2
-    cx += random.randint(-2, 2)
-    cy += random.randint(-2, 2)
+    
+    # 仅在需要时添加随机抖动（默认不抖动，提高精确度）
+    if jitter_range > 0:
+        cx += random.randint(-jitter_range, jitter_range)
+        cy += random.randint(-jitter_range, jitter_range)
+    
     return cx, cy
 
 # ========================
